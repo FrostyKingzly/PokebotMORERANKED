@@ -276,6 +276,10 @@ class PlayerDatabase:
                 rank_tier_number INTEGER,
                 ladder_points INTEGER DEFAULT 0,
                 has_promotion_ticket INTEGER DEFAULT 0,
+                ticket_tier INTEGER,
+                rank_pending_tier INTEGER,
+                has_omni_ring INTEGER DEFAULT 0,
+                omni_ring_gimmicks TEXT,
 
                 -- Following Pokemon
                 following_pokemon_id TEXT,
@@ -402,6 +406,8 @@ class PlayerDatabase:
         if add_column('fortitude_rank', 'INTEGER DEFAULT 1') and 'vigor_rank' in legacy_columns:
             cursor.execute("UPDATE trainers SET fortitude_rank = COALESCE(vigor_rank, 1)")
         add_column('will_rank', 'INTEGER DEFAULT 1')
+        add_column('ticket_tier', 'INTEGER')
+        add_column('rank_pending_tier', 'INTEGER')
 
         # Points
         if add_column('heart_points', 'INTEGER DEFAULT 50'):
@@ -431,6 +437,9 @@ class PlayerDatabase:
                     "UPDATE trainers SET stamina_max = ?, stamina_current = ? WHERE discord_user_id = ?",
                     (stamina_max, stamina_max, row['discord_user_id'] if isinstance(row, sqlite3.Row) else row[0])
                 )
+
+        add_column('has_omni_ring', 'INTEGER DEFAULT 0')
+        add_column('omni_ring_gimmicks', 'TEXT')
 
     def get_connection(self):
         """Get database connection"""
@@ -519,6 +528,54 @@ class PlayerDatabase:
     def trainer_exists(self, discord_user_id: int) -> bool:
         """Check if trainer exists"""
         return self.get_trainer(discord_user_id) is not None
+
+    def get_top_ranked_players(self, limit: int = 10) -> List[Dict[str, Any]]:
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT discord_user_id, trainer_name, rank_tier_number, rank_tier_name,
+                   ladder_points, has_promotion_ticket, ticket_tier
+            FROM trainers
+            ORDER BY COALESCE(rank_tier_number, 1) DESC, ladder_points DESC
+            LIMIT ?
+            """,
+            (limit,)
+        )
+        rows = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return rows
+
+    def get_ticket_holders(self) -> List[Dict[str, Any]]:
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT discord_user_id, trainer_name, rank_tier_number, ladder_points,
+                   ticket_tier
+            FROM trainers
+            WHERE has_promotion_ticket = 1
+            ORDER BY COALESCE(ticket_tier, rank_tier_number) ASC, ladder_points DESC
+            """
+        )
+        rows = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return rows
+
+    def get_trainers_with_pending_promotions(self, max_tier: int) -> List[Dict[str, Any]]:
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT discord_user_id, trainer_name, rank_pending_tier
+            FROM trainers
+            WHERE rank_pending_tier IS NOT NULL AND rank_pending_tier <= ?
+            """,
+            (max_tier,)
+        )
+        rows = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return rows
     
     def update_trainer(self, discord_user_id: int, **kwargs):
         """Update trainer fields"""

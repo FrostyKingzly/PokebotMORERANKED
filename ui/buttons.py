@@ -1973,6 +1973,13 @@ class BattleMenuView(View):
         """Show ranked options (players + NPCs)"""
         from ui.embeds import EmbedBuilder
 
+        rank_manager = getattr(self.bot, 'rank_manager', None)
+        if rank_manager:
+            lock_message = rank_manager.player_locked_from_ranked(interaction.user.id)
+            if lock_message:
+                await interaction.response.send_message(lock_message, ephemeral=True)
+                return
+
         _, location_id, location_name, available_trainers, error = self._get_available_players(interaction)
         if error:
             await interaction.response.send_message(error, ephemeral=True)
@@ -2036,6 +2043,7 @@ class PvPChallengeSetupView(View):
         self.selected_opponent_id: Optional[int] = None
         self.selected_format = BattleFormat.SINGLES if BattleFormat else None
         self.team_size = 1
+        self.pending_rank_context: Dict[str, Any] = {}
 
         opponent_options = []
         for trainer in self.visible_opponents:
@@ -2213,6 +2221,23 @@ class PvPChallengeSetupView(View):
             )
             return
 
+        extra_context: Dict[str, Any] = {}
+        format_label = 'singles'
+        if BattleFormat and self.selected_format == BattleFormat.DOUBLES:
+            format_label = 'doubles'
+        if self.is_ranked:
+            rank_manager = getattr(self.bot, 'rank_manager', None)
+            if rank_manager:
+                allowed, message, extra_context = rank_manager.prepare_ranked_battle(
+                    self.challenger.id,
+                    self.selected_opponent_id,
+                    format_name=format_label,
+                )
+                if not allowed:
+                    await interaction.response.send_message(message or "Ranked battle unavailable.", ephemeral=True)
+                    return
+        self.pending_rank_context = extra_context
+
         await interaction.response.defer(ephemeral=True)
 
         opponent_member = None
@@ -2369,10 +2394,25 @@ class PvPChallengeResponseView(View):
 
         ranked_context = None
         if self.is_ranked:
+            format_label = 'singles'
+            if BattleFormat and self.battle_format == BattleFormat.DOUBLES:
+                format_label = 'doubles'
+            extra_context: Dict[str, Any] = {}
+            rank_manager = getattr(self.bot, 'rank_manager', None)
+            if rank_manager:
+                allowed, message, extra_context = rank_manager.prepare_ranked_battle(
+                    self.challenger_id,
+                    self.opponent_id,
+                    format_name=format_label,
+                )
+                if not allowed:
+                    return message or "Ranked battle unavailable right now."
+                self.pending_rank_context = extra_context or self.pending_rank_context
             ranked_context = {
                 'mode': 'pvp',
                 'players': [self.challenger_id, self.opponent_id]
             }
+            ranked_context.update(self.pending_rank_context or {})
 
         battle_id = battle_cog.battle_engine.start_pvp_battle(
             trainer1_id=self.challenger_id,
@@ -2477,7 +2517,7 @@ class NpcTrainerSelectView(View):
         
         npc_index = int(interaction.data['values'][0])
         npc_data = self.npc_trainers[npc_index]
-        
+
         # Check if already in battle
         battle_cog = self.bot.get_cog('BattleCog')
         if interaction.user.id in battle_cog.user_battles:
@@ -2486,7 +2526,20 @@ class NpcTrainerSelectView(View):
                 ephemeral=True
             )
             return
-        
+
+        extra_context: Dict[str, Any] = {}
+        if self.ranked:
+            rank_manager = getattr(self.bot, 'rank_manager', None)
+            if rank_manager:
+                allowed, message, extra_context = rank_manager.prepare_ranked_battle(
+                    interaction.user.id,
+                    npc_name=npc_data.get('name'),
+                    format_name='singles',
+                )
+                if not allowed:
+                    await interaction.response.send_message(message or "Ranked battle unavailable.", ephemeral=True)
+                    return
+
         # Get trainer's party and reconstruct Pokemon objects
         trainer_party_data = self.bot.player_manager.get_party(interaction.user.id)
         trainer_pokemon = []
@@ -2512,7 +2565,7 @@ class NpcTrainerSelectView(View):
             )
             return
         
-        ranked_context = self._build_ranked_context(npc_data)
+        ranked_context = self._build_ranked_context(npc_data, extra_context)
 
         battle_id = battle_cog.battle_engine.start_trainer_battle(
             trainer_id=interaction.user.id,
@@ -2538,16 +2591,19 @@ class NpcTrainerSelectView(View):
 
         self.stop()
 
-    def _build_ranked_context(self, npc_data: dict) -> Optional[Dict[str, Any]]:
+    def _build_ranked_context(self, npc_data: dict, extra_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         if not self.ranked:
             return None
         npc_rank = npc_data.get('rank_tier_number') or npc_data.get('rank') or 1
-        return {
+        context = {
             'mode': 'npc',
             'npc_rank': npc_rank,
             'npc_name': npc_data.get('name'),
             'npc_class': npc_data.get('class')
         }
+        if extra_context:
+            context.update(extra_context)
+        return context
 
     def _create_npc_pokemon(self, npc_poke_data: dict):
         """Create a Pokemon object from NPC trainer data"""

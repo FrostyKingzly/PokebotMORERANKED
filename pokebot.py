@@ -20,8 +20,9 @@ from encounter_system import EncounterSystem
 from location_manager import LocationManager
 from ui.embeds import EmbedBuilder
 from ui.buttons import MainMenuView
-from database import (SpeciesDatabase, MovesDatabase, AbilitiesDatabase, 
+from database import (SpeciesDatabase, MovesDatabase, AbilitiesDatabase,
                      ItemsDatabase, NaturesDatabase, TypeChart)
+from rank_manager import RankManager
 
 
 class PokemonBot(commands.Bot):
@@ -43,6 +44,7 @@ class PokemonBot(commands.Bot):
         self.player_manager = None
         self.encounter_system = None
         self.location_manager = None
+        self.rank_manager = None
         
         # Load databases
         self.species_db = None
@@ -70,6 +72,7 @@ class PokemonBot(commands.Bot):
             species_db=self.species_db,
             items_db=self.items_db
         )
+        self.rank_manager = RankManager(self.player_manager)
         self.encounter_system = EncounterSystem(self.species_db, self.moves_db)
         self.location_manager = LocationManager(
             "data/locations.json",
@@ -110,6 +113,7 @@ class PokemonBot(commands.Bot):
             'cogs.wild_cog',
             'cogs.pokemon_cog',
             'cogs.pokemon_management_cog',
+            'cogs.rank_cog',
             'cogs.admin_cog',
         ]
         
