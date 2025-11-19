@@ -531,103 +531,28 @@ class BattleCog(commands.Cog):
             return None
 
         player_manager = getattr(self.bot, 'player_manager', None)
-        if not player_manager:
+        rank_manager = getattr(self.bot, 'rank_manager', None)
+        if not player_manager or not rank_manager:
             return None
 
-        winner_side = getattr(battle, 'winner', None)
-        if winner_side not in ('trainer', 'opponent'):
+        result = rank_manager.process_ranked_battle_result(battle, player_manager)
+        if not result:
             return None
-
-        winner_battler = battle.trainer if winner_side == 'trainer' else battle.opponent
-        loser_battler = battle.opponent if winner_side == 'trainer' else battle.trainer
-        winner_id = getattr(winner_battler, 'battler_id', None)
-
-        if not isinstance(winner_id, int) or winner_id <= 0:
-            return None
-
-        winner_trainer = player_manager.get_player(winner_id)
-        if not winner_trainer:
-            return None
-
-        winner_rank = getattr(winner_trainer, 'rank_tier_number', None) or 1
-        opponent_label = getattr(loser_battler, 'battler_name', 'Opponent')
-        opponent_rank = None
-        opponent_is_player = (
-            getattr(loser_battler, 'battler_id', -1) > 0 and
-            getattr(battle, 'battle_type', None) == BattleType.PVP
-        )
-
-        if opponent_is_player:
-            opponent_id = getattr(loser_battler, 'battler_id', None)
-            opponent_trainer = player_manager.get_player(opponent_id) if opponent_id else None
-            if opponent_trainer:
-                opponent_rank = getattr(opponent_trainer, 'rank_tier_number', None) or 1
-                opponent_label = getattr(opponent_trainer, 'trainer_name', opponent_label)
-        else:
-            ranked_context = getattr(battle, 'ranked_context', {}) or {}
-            opponent_rank = ranked_context.get('npc_rank') or 1
-            opponent_label = ranked_context.get('npc_name') or opponent_label
-
-        points_awarded = self._calculate_ranked_points(winner_rank, opponent_rank, opponent_is_player)
-        if points_awarded <= 0:
-            return None
-
-        old_points = getattr(winner_trainer, 'ladder_points', 0) or 0
-        new_points = old_points + points_awarded
-
-        try:
-            player_manager.update_player(winner_id, ladder_points=new_points)
-        except Exception:
-            return None
-
-        winner_trainer.ladder_points = new_points
 
         embed = discord.Embed(
-            title="🏆 Challenger Progress Updated",
-            description=f"{winner_trainer.trainer_name} gained Challenger points by defeating {opponent_label}.",
+            title=result.get('title', 'Ranked Result'),
+            description=result.get('description', ''),
             color=discord.Color.green()
         )
-
-        embed.add_field(
-            name="Challenger Points",
-            value=f"{old_points} → {new_points} (Δ +{points_awarded})",
-            inline=False
-        )
-
-        if getattr(winner_trainer, 'has_promotion_ticket', False):
+        for field in result.get('fields', []):
             embed.add_field(
-                name="Ticket",
-                value="🎟️ Challenger ticket already earned.",
-                inline=False
+                name=field.get('name', 'Info'),
+                value=field.get('value', '—'),
+                inline=field.get('inline', False)
             )
-
+        if result.get('footer'):
+            embed.set_footer(text=result['footer'])
         return embed
-
-    def _calculate_ranked_points(self, winner_rank: int, opponent_rank: Optional[int], opponent_is_player: bool) -> int:
-        opponent_rank = opponent_rank or winner_rank or 1
-        winner_rank = winner_rank or 1
-
-        if opponent_is_player:
-            if opponent_rank > winner_rank:
-                return 50
-            if opponent_rank == winner_rank:
-                return 25
-            return 10
-
-        if opponent_rank > winner_rank:
-            return 20
-        if opponent_rank == winner_rank:
-            return 10
-        return 5
-
-        if not results or not results.get('exp_gains'):
-            return None
-
-        try:
-            return self.exp_handler.create_exp_embed(results, trainer.party, defeated_pokemon)
-        except Exception as exc:
-            print(f"[BattleCog] Failed to build EXP embed: {exc}")
-            return None
 
     async def _handle_post_turn(self, interaction: discord.Interaction, battle_id: str):
         battle = self.battle_engine.get_battle(battle_id)

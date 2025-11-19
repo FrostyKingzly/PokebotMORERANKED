@@ -341,7 +341,20 @@ class Trainer:
         self.rank_tier_number = data.get('rank_tier_number')
         self.ladder_points = data.get('ladder_points', 0)
         self.has_promotion_ticket = bool(data.get('has_promotion_ticket', 0))
-        
+        self.ticket_tier = data.get('ticket_tier')
+        self.rank_pending_tier = data.get('rank_pending_tier')
+        self.has_omni_ring = bool(data.get('has_omni_ring', 0))
+        gimmicks_raw = data.get('omni_ring_gimmicks')
+        if isinstance(gimmicks_raw, str):
+            try:
+                self.omni_ring_gimmicks = json.loads(gimmicks_raw) or []
+            except json.JSONDecodeError:
+                self.omni_ring_gimmicks = []
+        elif isinstance(gimmicks_raw, list):
+            self.omni_ring_gimmicks = gimmicks_raw
+        else:
+            self.omni_ring_gimmicks = []
+
         # Following Pokemon
         self.following_pokemon_id = data.get('following_pokemon_id')
     

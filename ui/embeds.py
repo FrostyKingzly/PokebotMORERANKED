@@ -6,6 +6,7 @@ import discord
 from typing import List, Dict, Optional
 from models import Trainer
 from exp_display_helpers import create_exp_text
+from rank_manager import get_rank_tier_definition
 
 class EmbedBuilder:
     """Builds Discord embeds for the bot"""
@@ -24,7 +25,9 @@ class EmbedBuilder:
         Uses ladder_points out of 100 for the visual, and notes if a ticket
         has already been earned.
         """
-        max_points = 100
+        tier = trainer.rank_tier_number or 1
+        definition = get_rank_tier_definition(tier)
+        max_points = definition.get('ticket_threshold') or definition.get('point_cap') or 100
         raw_points = getattr(trainer, "ladder_points", 0) or 0
         points = max(0, int(raw_points))
         clamped = min(points, max_points)
